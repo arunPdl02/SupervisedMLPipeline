@@ -1,0 +1,328 @@
+---
+title: "project"
+format: html
+Author: "Arun Paudel, 301557420"
+---
+
+# Step 1: Exploratory Analysis
+Performing Exploratory Analysis to see the relationships between features.
+
+```{r Exploratory Analysis}
+data <- read.csv("training_data.csv")
+
+n <- nrow(data)
+
+head(data)
+
+cor_mat <- cor(data)
+
+library(corrplot)
+corrplot(
+  cor_mat,
+  type = "upper",
+  order = "hclust"
+)
+```
+We can see that variables like X5, X6, X8, X11, X19 and X12 share a high degree to correlation. While X2 and X15 share high degree of negative correlation. So, it would be good to use a model that drops predictors. Random Forest sounds like a good idea but first, I will explore basic regression tools like Linear, Ridge and LASSO.That will give me an idea of the underlying pattern of the data and give me a base number that I can then try to improve with other sophisticated models.
+
+
+# Step 2: Data Splitting
+```{r Data Splitting}
+set.seed(99)
+set <- sample(seq_len(n), size = 0.75 * n)
+
+train_data <- data[set,]
+test_data <- data[-set,]
+
+n
+nrow(train_data)
+nrow(test_data)
+
+min(data$Y)
+max(data$Y)
+
+```
+We have successfully split the data in a conservative manner(75/25). The minimum value of Y is 0 and the max is 20.997. I will use the train_data for every model and use test_data only for calculating mspe for all model comparisons so it's a fair comparison.
+
+
+# Step 3: Exploring basic models
+
+## Linear Regression model
+```{r Linear Regression}
+
+# fit a basic linear regression model
+lm_model <- lm(Y~., data = train_data)
+
+# test the linear regression fit and save it for comparison
+pred_lm <- predict(lm_model, newdata = test_data)
+
+```
+
+## Ridge Regression Model
+```{r Fit Ridge Regression}
+# code pattern burrowed from coding example file: Sec5_Ridge_LASSO_Prostate
+library(MASS)
+
+ridge_model <- lm.ridge(
+  Y~.,
+  lambda = seq(0,100, 0.05),
+  data = train_data
+)
+
+select(ridge_model)
+coef_ridge_best <- coef(ridge_model)[which.min(ridge_model$GCV), ]
+
+x_test_ridge <- model.matrix(
+  Y ~.,
+  data = test_data
+)
+
+pred_ridge <- x_test_ridge %*% coef_ridge_best
+
+```
+
+## LASSO Regression Model
+```{r Fit LASSO}
+# code pattern burrowed from coding example file: Sec5_Ridge_LASSO_Prostate
+library(glmnet)
+
+y_train <- train_data$Y
+x_train <- as.matrix(subset(train_data, select = -Y))
+y_test <- test_data$Y
+x_test <- as.matrix(subset(test_data, select = -Y))
+
+lasso_model <- glmnet(y = y_train, x = x_train, family = "gaussian")
+
+set.seed(99)
+cv_lasso <- cv.glmnet(y = y_train, x = x_train, family = "gaussian")
+
+# we consider two lambdas here because it's sometimes better to sacrifice performance for simplicity
+coef(cv_lasso, s = cv_lasso$lambda.min)
+coef(cv_lasso, s = cv_lasso$lambda.1se)
+
+pred_lasso_min <- predict(cv_lasso, newx = x_test, s = cv_lasso$lambda.min)
+pred_lasso_1se <- predict(cv_lasso, newx = x_test, s = cv_lasso$lambda.1se)
+
+```
+
+## Calculating MSPE for all the basic models
+```{r Comparing MSPE of linear, ridge and LASSO}
+y_test <- test_data$Y
+
+MSPE_lm          <- mean((y_test - pred_lm)^2)
+MSPE_ridge       <- mean((y_test - as.numeric(pred_ridge))^2)
+MSPE_lasso_min   <- mean((y_test - as.numeric(pred_lasso_min))^2)
+MSPE_lasso_1se   <- mean((y_test - as.numeric(pred_lasso_1se))^2)
+
+results <- data.frame(
+  Model = c("Linear Regression",
+            "Ridge",
+            "LASSO (lambda.min)",
+            "LASSO (lambda.1se)"),
+  
+  MSPE = c(
+    MSPE_lm,
+    MSPE_ridge,
+    MSPE_lasso_min,
+    MSPE_lasso_1se
+  )
+)
+
+#ordering the results on the basis of performance
+results[order(results$MSPE),]
+
+```
+MSPE of 27 means they're off by 5 points and the value ranges from 0 to 20 so let's explore how much better results we can yield. 
+
+This makes me think that the underlying pattern of the data might not be linear, I will now run Random Forest to see how it'll perform.
+
+
+# Step 4: Exploring More Sophisticated Models
+
+## Random Forest Model
+```{r Fit Random Forest}
+library(randomForest)
+
+treeNumber <- 500
+
+set.seed(99)
+rf_model <- randomForest(
+  Y~.,
+  data = train_data,
+  importance = TRUE,
+  ntree = treeNumber
+)
+
+# internal OOB MSPE
+MSPE_rf_oob <- mean((predict(rf_model) - train_data$Y)^2)
+
+# test MSPE for fair comparison with other model
+rf_pred_test <- predict(rf_model, newdata = test_data)
+MSPE_rf_test <- mean((test_data$Y - rf_pred_test)^2)
+
+MSPE_rf_oob
+MSPE_rf_test
+
+results <- rbind(
+  results,
+  data.frame(
+    Model = c("Random Forest (default mtry)"),
+    MSPE = MSPE_rf_test
+  )
+)
+
+results
+```
+Default setting of Random Forest dramatically improved the mspe. We were able to reduce it by almost 40%. I also want to explore how XGBoost will perform compared to random forest
+
+## XG-Boosting Model
+```{r Fit Boosting}
+library(xgboost)
+
+x_train <- as.matrix(subset(train_data, select = -Y))
+y_train <- train_data$Y
+x_test  <- as.matrix(subset(test_data,  select = -Y))
+y_test  <- test_data$Y
+
+dtrain <- xgb.DMatrix(data = x_train, label = y_train)
+dtest  <- xgb.DMatrix(data = x_test,  label = y_test)
+
+set.seed(99)
+cv_fit <- xgb.cv(
+  data = dtrain,
+  objective = "reg:squarederror",
+  nrounds = treeNumber,
+  eta = 0.1,
+  max_depth = 3,
+  nfold = 5,
+  early_stopping_rounds = 20,
+  verbose = 0
+)
+
+best_nrounds <- cv_fit$best_iteration
+best_nrounds
+
+xgb_model <- xgboost(
+  data = dtrain,
+  objective = "reg:squarederror",
+  nrounds = best_nrounds,
+  eta = 0.1,
+  max_depth = 3,
+  verbose = 0
+)
+
+xgb_pred_test <- predict(xgb_model, newdata = dtest)
+MSPE_xgb <- mean((y_test - xgb_pred_test)^2)
+
+results <- rbind(
+  results,
+  data.frame(
+    Model = "XGBoost",
+    MSPE  = MSPE_xgb
+  )
+)
+
+results
+
+```
+
+## Results
+Results from the XGBoost show that it didn't perform quite as well. But with parameter tuning, it could perform really well. My machine took a significantly long time training xgboost compared to random forest so I will tune random forest to improve the results.
+
+
+# Step 5: Parameter Tuning for Random Forest
+
+## Removing unuseful variables
+```{r}
+importance(rf_model)
+
+drop_vars <- c("X2", "X3", "X4", "X6", "X7", "X10", "X14", "X16", "X17", "X18")
+
+newdata <- data[ , !(names(data) %in% drop_vars)]
+
+head(newdata)
+```
+
+## Parameter tuning
+Here we will optimize for two parameters, mtry and nodesize.We will pick the parameters that yield the best OOB MSPE. Using test_data here would result in data leakage so we will save that for the comparing the best model MSPE with other models
+```{r parameter tuning for RF}
+# Grids
+mtry_grid     <- c(2,3,4,5,6,7,8,9)
+nodesize_grid <- c(1, 3, 5, 7)
+
+
+# variable to store results
+rf_tune_results <- data.frame()
+
+set.seed(99)
+for (m in mtry_grid) {
+  for (ns in nodesize_grid) {
+    
+    rf_model <- randomForest(
+      Y ~ .,
+      data = newdata,
+      ntree = treeNumber,
+      mtry = m,
+      nodesize = ns
+    )
+    
+    # OOB predictions to compare for different parameter performance
+    oob_mspe <- mean((predict(rf_model) - newdata$Y)^2)
+    
+    rf_tune_results <- rbind(
+      rf_tune_results,
+      data.frame(
+        mtry = m,
+        nodesize = ns,
+        OOB_MSPE = oob_mspe
+      )
+    )
+  }
+}
+```
+
+## Results of tuning
+```{r Result of parameter tuning}
+best_rf <- rf_tune_results[order(rf_tune_results$OOB_MSPE), ][1, ]
+best_rf
+
+best_mtry     <- best_rf$mtry
+best_nodesize <- best_rf$nodesize
+```
+We now know the best mtry parameter and nodesize parameter for our random forest. Let's build the actual model to find out the MSPE of the best model
+
+# Step 6: Final Model
+Building the final model with full data
+```{r final model trianed with full data}
+set.seed(99)
+final_model <- randomForest(
+  Y~.,
+  data = newdata,
+  importance = TRUE,
+  ntree = treeNumber,
+  mtry = best_mtry,
+  nodesize = best_nodesize
+)
+
+final_model_mspe <- mean((predict(final_model)- newdata$Y)^2)
+
+final_model_mspe
+```
+
+## Final testing and saving
+We will test on test_predictors.csv and write the results to predictions.csv for submission
+```{r preditcting on test data}
+test_pred <- read.csv("test_predictors.csv")
+
+newtest <- test_pred[ , !(names(test_pred) %in% drop_vars)]
+
+predictions <- predict(final_model, newdata = newtest)
+
+write.table(
+  predictions,
+  file = "predictions.csv",
+  sep = ",",
+  row.names = FALSE,
+  col.names = FALSE
+)
+```
