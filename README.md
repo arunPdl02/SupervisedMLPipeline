@@ -1,4 +1,4 @@
-# Machine Learning Pipeline
+# Supervised Machine Learning Pipeline
 
 ## Overview
 This project implements a reproducible machine learning pipeline for predictive modeling on a numeric dataset with 20 features and 20,000 observations. Multiple linear and non-linear models were evaluated, with a focus on correct evaluation discipline, feature selection, and model tuning.
