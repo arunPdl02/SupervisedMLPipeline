@@ -8,7 +8,7 @@ Author: "Arun Paudel, 301557420"
 Performing Exploratory Analysis to see the relationships between features.
 
 ```{r Exploratory Analysis}
-data <- read.csv("training_data.csv")
+data <- read.csv("dataset/training_data.csv")
 
 n <- nrow(data)
 
@@ -312,7 +312,7 @@ final_model_mspe
 ## Final testing and saving
 We will test on test_predictors.csv and write the results to predictions.csv for submission
 ```{r preditcting on test data}
-test_pred <- read.csv("test_predictors.csv")
+test_pred <- read.csv("dataset/test_predictors.csv")
 
 newtest <- test_pred[ , !(names(test_pred) %in% drop_vars)]
 

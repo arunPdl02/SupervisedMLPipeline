@@ -1,0 +1,40 @@
+# R session files
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+
+# RStudio files
+.Rproj.user/
+*.Rproj
+
+# Package build artifacts
+.Rcheck/
+*.tar.gz
+
+# Knitr / R Markdown
+*_cache/
+*_files/
+*.html
+*.pdf
+*.docx
+
+# Temporary files
+*.tmp
+*.log
+
+# Data files (usually large or generated)
+*.tsv
+*.xlsx
+*.rds
+*.rda
+
+# Plots / output
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# OS files
+.DS_Store
+Thumbs.db
